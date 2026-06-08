@@ -22,8 +22,9 @@ async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
     """查詢指定捷運站的下一班列車即時到站時間。
 
     Args:
-        station_name: 捷運站名（中文），例如「台北車站」「忠孝復興」「板橋」
-        system: 捷運系統代碼。TRTC=台北捷運, KRTC=高雄捷運, TYMC=桃園機場捷運
+        station_name: 捷運站名（中文），例如「台北車站」「忠孝復興」「板橋」「淡水」「紅樹林」
+        system: 捷運/輕軌系統代碼。TRTC=台北捷運, KRTC=高雄捷運, TYMC=桃園機場捷運,
+                NTDLRT=淡海輕軌, KLRT=高雄輕軌
     """
     try:
         data = await tdx_client.get_metro_station_live(station_name, system)
