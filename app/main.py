@@ -28,6 +28,7 @@ app = FastAPI(title="Taiwan Transport Bot", lifespan=lifespan)
 
 
 @app.get("/health")
+@app.head("/health")
 async def health():
     return {"status": "ok"}
 
