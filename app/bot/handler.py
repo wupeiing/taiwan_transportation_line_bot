@@ -1,7 +1,11 @@
+import logging
+
 from linebot.v3.messaging import AsyncMessagingApi, ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 from app.agent.core import get_transport_response
+
+logger = logging.getLogger(__name__)
 
 
 async def handle_message(event: MessageEvent, api: AsyncMessagingApi) -> None:
@@ -9,7 +13,12 @@ async def handle_message(event: MessageEvent, api: AsyncMessagingApi) -> None:
         return
 
     user_text = event.message.text
-    reply = await get_transport_response(user_text)
+
+    try:
+        reply = await get_transport_response(user_text)
+    except Exception:
+        logger.exception("Failed to get transport response")
+        reply = "系統忙碌中，請稍後再試 🙏"
 
     await api.reply_message(
         ReplyMessageRequest(

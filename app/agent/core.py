@@ -23,7 +23,7 @@ TOOL_MAP = {t.name: t for t in TOOLS}
 MAX_TOOL_ROUNDS = 5
 
 llm = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct",
+    model="llama-3.3-70b-versatile",
     api_key=settings.groq_api_key,
     temperature=0.3,
     max_tokens=1024,
@@ -40,30 +40,35 @@ async def get_transport_response(user_message: str) -> str:
         HumanMessage(content=user_message),
     ]
 
-    for _round in range(MAX_TOOL_ROUNDS):
-        response: AIMessage = await llm_with_tools.ainvoke(messages)
-        messages.append(response)
+    try:
+        for _round in range(MAX_TOOL_ROUNDS):
+            response: AIMessage = await llm_with_tools.ainvoke(messages)
+            messages.append(response)
 
-        if not response.tool_calls:
-            return response.content or "抱歉，我無法處理這個請求。"
+            if not response.tool_calls:
+                return response.content or "抱歉，我無法處理這個請求。"
 
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-            logger.info("Tool call: %s(%s)", tool_name, tool_args)
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+                logger.info("Tool call: %s(%s)", tool_name, tool_args)
 
-            tool_fn = TOOL_MAP.get(tool_name)
-            if tool_fn is None:
-                result = f"未知的工具：{tool_name}"
-            else:
-                try:
-                    result = await tool_fn.ainvoke(tool_args)
-                except Exception as e:
-                    logger.exception("Tool %s failed", tool_name)
-                    result = f"工具執行失敗：{e}"
+                tool_fn = TOOL_MAP.get(tool_name)
+                if tool_fn is None:
+                    result = f"未知的工具：{tool_name}"
+                else:
+                    try:
+                        result = await tool_fn.ainvoke(tool_args)
+                    except Exception as e:
+                        logger.exception("Tool %s failed", tool_name)
+                        result = f"工具執行失敗：{e}"
 
-            messages.append(
-                ToolMessage(content=result, tool_call_id=tool_call["id"])
-            )
+                messages.append(
+                    ToolMessage(content=result, tool_call_id=tool_call["id"])
+                )
+
+    except Exception as e:
+        logger.exception("Agent loop failed")
+        return f"查詢時發生錯誤，請稍後再試。\n錯誤訊息：{e}"
 
     return "查詢步驟過多，請嘗試簡化您的問題。"
