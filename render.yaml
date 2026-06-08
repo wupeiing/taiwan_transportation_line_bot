@@ -11,3 +11,7 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: TDX_CLIENT_ID
+        sync: false
+      - key: TDX_CLIENT_SECRET
+        sync: false
