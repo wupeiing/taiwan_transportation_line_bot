@@ -152,9 +152,13 @@ async def search_next_train(
         to_id = tdx_client.resolve_tra_station_id(station_list, to_station)
 
         if not from_id:
-            return f"找不到出發站「{from_station}」，請確認站名是否正確。"
+            similar = tdx_client.find_similar_tra_stations(station_list, from_station)
+            suggestions = "、".join(f"「{s}」" for s in similar)
+            return f"找不到出發站「{from_station}」。\n你是不是要找：{suggestions}？"
         if not to_id:
-            return f"找不到到達站「{to_station}」，請確認站名是否正確。"
+            similar = tdx_client.find_similar_tra_stations(station_list, to_station)
+            suggestions = "、".join(f"「{s}」" for s in similar)
+            return f"找不到到達站「{to_station}」。\n你是不是要找：{suggestions}？"
 
         if not train_date:
             now_tw = datetime.now(TW_TZ)

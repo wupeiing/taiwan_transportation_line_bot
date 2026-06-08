@@ -1,4 +1,5 @@
 import time
+from difflib import SequenceMatcher
 
 import httpx
 
@@ -103,17 +104,36 @@ class TDXClient:
         self._tra_stations_cache = data
         return data
 
-    def resolve_tra_station_id(self, station_list: list, name: str) -> str | None:
-        normalized = self._normalize_tra_name(name)
+    def _get_all_tra_names(self, station_list: list) -> list[tuple[str, str]]:
+        """Extract (station_name_zh, station_id) pairs from station list."""
+        results = []
         for s in station_list:
             name_obj = s.get("StationName") or s.get("stationName", {})
             name_zh = name_obj.get("Zh_tw") or name_obj.get("zh_tw", "")
             station_id = s.get("StationID") or s.get("stationID")
-            if not name_zh or not station_id:
-                continue
+            if name_zh and station_id:
+                results.append((name_zh, station_id))
+        return results
+
+    def resolve_tra_station_id(self, station_list: list, name: str) -> str | None:
+        normalized = self._normalize_tra_name(name)
+        for name_zh, station_id in self._get_all_tra_names(station_list):
             if normalized in name_zh or name_zh in normalized:
                 return station_id
         return None
+
+    def find_similar_tra_stations(self, station_list: list, name: str, top_n: int = 3) -> list[str]:
+        """Find TRA stations with similar names using fuzzy matching."""
+        normalized = self._normalize_tra_name(name)
+        scored: list[tuple[float, str]] = []
+        for name_zh, _ in self._get_all_tra_names(station_list):
+            ratio = SequenceMatcher(None, normalized, name_zh).ratio()
+            # Boost score if any character matches
+            char_overlap = len(set(normalized) & set(name_zh))
+            boosted = ratio + char_overlap * 0.15
+            scored.append((boosted, name_zh))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [name for _, name in scored[:top_n]]
 
     async def get_tra_timetable(
         self, from_station_id: str, to_station_id: str, train_date: str
