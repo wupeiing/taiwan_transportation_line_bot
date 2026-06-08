@@ -7,6 +7,7 @@ from linebot.v3.webhooks import MessageEvent
 
 from app.bot.handler import handle_message
 from app.config import settings
+from app.services.tdx import tdx_client
 
 parser = WebhookParser(settings.line_channel_secret)
 messaging_api: AsyncMessagingApi | None = None
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     messaging_api = AsyncMessagingApi(async_api_client)
     yield
     await async_api_client.close()
+    await tdx_client.close()
 
 
 app = FastAPI(title="Taiwan Transport Bot", lifespan=lifespan)
