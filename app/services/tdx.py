@@ -18,12 +18,11 @@ class TDXClient:
         self._client = httpx.AsyncClient(timeout=10.0)
         self._token: str | None = None
         self._token_expires_at: float = 0
+        self._tra_stations_cache: list | None = None
 
     async def _ensure_token(self) -> None:
-        """Refresh access token if expired (tokens last 24 hours)."""
         if self._token and time.time() < self._token_expires_at:
             return
-
         resp = await self._client.post(
             TDX_AUTH_URL,
             data={
@@ -38,7 +37,6 @@ class TDXClient:
         self._token_expires_at = time.time() + data.get("expires_in", 86400) - 3600
 
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
-        """Make authenticated GET request to TDX API."""
         await self._ensure_token()
         resp = await self._client.get(
             f"{TDX_BASE_URL}{path}",
@@ -50,22 +48,23 @@ class TDXClient:
 
     # ── Metro (MRT) ──────────────────────────────
 
-    async def get_metro_station_live(
+    async def get_metro_station_timetable(
         self, station_name: str, system: str = "TRTC"
     ) -> list:
-        """Get real-time arrivals for a specific metro station."""
-        return await self._get(
-            f"/v2/Rail/Metro/LiveBoard/{system}",
-            params={
-                "$filter": f"contains(StationName/Zh_tw,'{station_name}')",
-                "$format": "JSON",
-            },
+        all_data = await self._get(
+            f"/v2/Rail/Metro/StationTimeTable/{system}",
+            params={"$format": "JSON"},
         )
+        name = station_name.rstrip("站")
+        return [
+            item for item in all_data
+            if name in item.get("StationName", {}).get("Zh_tw", "")
+            or item.get("StationName", {}).get("Zh_tw", "") in name
+        ]
 
     # ── Bus ───────────────────────────────────────
 
     async def get_bus_eta(self, city: str, route_name: str) -> list:
-        """Get estimated time of arrival for all stops on a bus route."""
         return await self._get(
             f"/v2/Bus/EstimatedTimeOfArrival/City/{city}/{route_name}",
             params={"$format": "JSON"},
@@ -74,31 +73,81 @@ class TDXClient:
     async def get_bus_stop_eta(
         self, city: str, route_name: str, stop_name: str
     ) -> list:
-        """Get ETA for a specific stop on a bus route."""
-        return await self._get(
+        all_data = await self._get(
             f"/v2/Bus/EstimatedTimeOfArrival/City/{city}/{route_name}",
-            params={
-                "$filter": f"contains(StopName/Zh_tw,'{stop_name}')",
-                "$format": "JSON",
-            },
+            params={"$format": "JSON"},
         )
+        return [
+            item for item in all_data
+            if stop_name in item.get("StopName", {}).get("Zh_tw", "")
+        ]
 
     # ── TRA (Taiwan Railways) ─────────────────────
+
+    # 台→臺 and other common aliases
+    TRA_NAME_ALIASES = {
+        "台北": "臺北", "台中": "臺中", "台南": "臺南",
+        "台東": "臺東", "台北車站": "臺北",
+        "竹南車站": "竹南", "汶談": "汶水",
+    }
+
+    @staticmethod
+    def _normalize_tra_name(name: str) -> str:
+        name = name.rstrip("車站").rstrip("站")
+        return TDXClient.TRA_NAME_ALIASES.get(name, name)
+
+    async def get_tra_stations(self) -> list:
+        if self._tra_stations_cache:
+            return self._tra_stations_cache
+        data = await self._get("/v3/Rail/TRA/Station", params={"$format": "JSON"})
+        self._tra_stations_cache = data
+        return data
+
+    def resolve_tra_station_id(self, station_list: list, name: str) -> str | None:
+        normalized = self._normalize_tra_name(name)
+        for s in station_list:
+            name_obj = s.get("StationName") or s.get("stationName", {})
+            name_zh = name_obj.get("Zh_tw") or name_obj.get("zh_tw", "")
+            station_id = s.get("StationID") or s.get("stationID")
+            if not name_zh or not station_id:
+                continue
+            if normalized in name_zh or name_zh in normalized:
+                return station_id
+        return None
 
     async def get_tra_timetable(
         self, from_station_id: str, to_station_id: str, train_date: str
     ) -> list:
-        """Get TRA daily timetable between two stations."""
         return await self._get(
             f"/v3/Rail/TRA/DailyTrainTimetable/OD"
             f"/{from_station_id}/to/{to_station_id}/{train_date}",
             params={"$format": "JSON"},
         )
 
-    async def get_tra_stations(self) -> list:
-        """Get list of all TRA stations with IDs."""
+    # ── THSR (High Speed Rail) ─────────────────────
+
+    HSR_STATIONS = {
+        "南港": "0990", "台北": "1000", "臺北": "1000",
+        "板橋": "1010", "桃園": "1020", "新竹": "1030",
+        "苗栗": "1035", "台中": "1040", "臺中": "1040",
+        "彰化": "1043", "雲林": "1047", "嘉義": "1050",
+        "台南": "1060", "臺南": "1060", "左營": "1070",
+        "高雄": "1070", "北車": "1000",
+    }
+
+    def resolve_hsr_station_id(self, name: str) -> str | None:
+        name = name.rstrip("站")
+        for key, sid in self.HSR_STATIONS.items():
+            if key in name or name in key:
+                return sid
+        return None
+
+    async def get_hsr_timetable(
+        self, from_station_id: str, to_station_id: str, train_date: str
+    ) -> list:
         return await self._get(
-            "/v3/Rail/TRA/Station",
+            f"/v2/Rail/THSR/DailyTimetable/OD"
+            f"/{from_station_id}/to/{to_station_id}/{train_date}",
             params={"$format": "JSON"},
         )
 

@@ -17,9 +17,19 @@ def _format_seconds(seconds: int | None) -> str:
     return f"約 {seconds // 60} 分鐘"
 
 
+def _is_service_today(service_day: dict) -> bool:
+    """Check if a timetable entry is valid for today."""
+    now_tw = datetime.now(TW_TZ)
+    day_map = {
+        0: "Monday", 1: "Tuesday", 2: "Wednesday",
+        3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday",
+    }
+    return service_day.get(day_map.get(now_tw.weekday(), ""), False)
+
+
 @tool
 async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
-    """查詢指定捷運站的下一班列車即時到站時間。
+    """查詢指定捷運站的下一班列車時刻。
 
     Args:
         station_name: 捷運站名（中文），例如「台北車站」「忠孝復興」「板橋」「淡水」「紅樹林」
@@ -27,21 +37,39 @@ async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
                 NTDLRT=淡海輕軌, KLRT=高雄輕軌
     """
     try:
-        data = await tdx_client.get_metro_station_live(station_name, system)
+        data = await tdx_client.get_metro_station_timetable(station_name, system)
 
         if not data:
-            return f"找不到「{station_name}」的即時資訊，請確認站名是否正確。"
+            return f"找不到「{station_name}」的時刻資訊，請確認站名是否正確。"
 
-        lines: list[str] = [f"🚇 {station_name}站 即時到站資訊：\n"]
-        for item in data:
-            dest = item.get("DestinationStationName", {}).get("Zh_tw", "未知")
-            estimate = item.get("EstimateTime")
-            line_name = item.get("LineName", {}).get("Zh_tw", "")
-            time_str = _format_seconds(estimate)
-            direction_str = f"往{dest}"
-            if line_name:
-                direction_str = f"[{line_name}] {direction_str}"
-            lines.append(f"• {direction_str}：{time_str}")
+        now_tw = datetime.now(TW_TZ)
+        current_time = now_tw.strftime("%H:%M")
+
+        lines: list[str] = [f"🚇 {station_name}站 時刻表：\n"]
+
+        for entry in data:
+            dest = entry.get("DestinationStationName", {}).get("Zh_tw", "未知")
+            service_day = entry.get("ServiceDay", {})
+
+            if not _is_service_today(service_day):
+                continue
+
+            timetables = entry.get("Timetables", [])
+            upcoming = [
+                t["DepartureTime"] for t in timetables
+                if t.get("DepartureTime", "") >= current_time
+            ]
+
+            if not upcoming:
+                lines.append(f"• 往{dest}：今日已無班次")
+                continue
+
+            next_3 = upcoming[:3]
+            times_str = "、".join(next_3)
+            lines.append(f"• 往{dest}：接下來 {times_str}")
+
+        if len(lines) == 1:
+            return f"「{station_name}」站目前無可查詢的班次。"
 
         return "\n".join(lines)
     except Exception as e:
@@ -120,30 +148,13 @@ async def search_next_train(
         if isinstance(stations, dict):
             station_list = stations.get("Stations", stations.get("stations", []))
 
-        from_id = None
-        to_id = None
-        for s in station_list:
-            name_zh = None
-            station_id = None
-            if "StationName" in s:
-                name_obj = s["StationName"]
-                name_zh = name_obj.get("Zh_tw") or name_obj.get("zh_tw")
-                station_id = s.get("StationID") or s.get("stationID")
-            elif "stationName" in s:
-                name_obj = s["stationName"]
-                name_zh = name_obj.get("zh_tw") or name_obj.get("Zh_tw")
-                station_id = s.get("stationID") or s.get("StationID")
-
-            if name_zh and station_id:
-                if from_station in name_zh or name_zh in from_station:
-                    from_id = station_id
-                if to_station in name_zh or name_zh in to_station:
-                    to_id = station_id
+        from_id = tdx_client.resolve_tra_station_id(station_list, from_station)
+        to_id = tdx_client.resolve_tra_station_id(station_list, to_station)
 
         if not from_id:
-            return f"找不到出發站「{from_station}」，請用正式站名（如「臺北」而非「台北」）。"
+            return f"找不到出發站「{from_station}」，請確認站名是否正確。"
         if not to_id:
-            return f"找不到到達站「{to_station}」，請用正式站名（如「臺北」而非「台北」）。"
+            return f"找不到到達站「{to_station}」，請確認站名是否正確。"
 
         if not train_date:
             now_tw = datetime.now(TW_TZ)
@@ -211,3 +222,69 @@ async def search_next_train(
         return "\n".join(lines)
     except Exception as e:
         return f"查詢台鐵時刻時發生錯誤：{e}"
+
+
+@tool
+async def search_next_hsr(
+    from_station: str, to_station: str,
+) -> str:
+    """查詢高鐵從某站到某站最近的班次時刻。
+
+    Args:
+        from_station: 出發站名（中文），例如「台北」「台中」「左營」「高雄」
+        to_station: 到達站名（中文），例如「台南」「台北」「板橋」
+    """
+    try:
+        from_id = tdx_client.resolve_hsr_station_id(from_station)
+        to_id = tdx_client.resolve_hsr_station_id(to_station)
+
+        if not from_id:
+            return f"找不到高鐵站「{from_station}」。高鐵站有：南港、台北、板橋、桃園、新竹、苗栗、台中、彰化、雲林、嘉義、台南、左營(高雄)。"
+        if not to_id:
+            return f"找不到高鐵站「{to_station}」。高鐵站有：南港、台北、板橋、桃園、新竹、苗栗、台中、彰化、雲林、嘉義、台南、左營(高雄)。"
+
+        now_tw = datetime.now(TW_TZ)
+        train_date = now_tw.strftime("%Y-%m-%d")
+        current_time = now_tw.strftime("%H:%M")
+
+        data = await tdx_client.get_hsr_timetable(from_id, to_id, train_date)
+
+        if not data:
+            return f"查無今日從「{from_station}」到「{to_station}」的高鐵班次。"
+
+        upcoming: list[dict] = []
+        for train in data:
+            info = train.get("DailyTrainInfo", {})
+            origin = train.get("OriginStopTime", {})
+            dest = train.get("DestinationStopTime", {})
+
+            dep_time = origin.get("DepartureTime", "")
+            arr_time = dest.get("ArrivalTime", "")
+
+            if dep_time >= current_time:
+                upcoming.append({
+                    "no": info.get("TrainNo", "?"),
+                    "dep": dep_time,
+                    "arr": arr_time,
+                })
+
+        if not upcoming:
+            return (
+                f"今日從「{from_station}」到「{to_station}」已無更多高鐵班次。\n"
+                f"可嘗試查詢明天的班次。"
+            )
+
+        lines: list[str] = [
+            f"🚄 高鐵 {from_station} → {to_station}（{train_date}）\n"
+        ]
+        for t in upcoming[:5]:
+            lines.append(
+                f"• 車次 {t['no']}　{t['dep']} 出發 → {t['arr']} 到達"
+            )
+
+        if len(upcoming) > 5:
+            lines.append(f"\n（還有 {len(upcoming) - 5} 班，僅顯示最近 5 班）")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"查詢高鐵時刻時發生錯誤：{e}"
