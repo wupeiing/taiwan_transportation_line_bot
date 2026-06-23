@@ -27,14 +27,32 @@ def _is_service_today(service_day: dict) -> bool:
     return service_day.get(day_map.get(now_tw.weekday(), ""), False)
 
 
+def _compute_time_bounds(start_time: str | None, end_time: str | None) -> tuple[str, str | None]:
+    """Return (lower, upper) HH:MM bounds for timetable filtering.
+
+    lower = start_time if given, else current Taiwan time.
+    upper = end_time if given, else None (no upper bound).
+    """
+    now_tw = datetime.now(TW_TZ)
+    lower = start_time if start_time else now_tw.strftime("%H:%M")
+    return lower, end_time
+
+
 @tool
-async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
+async def search_next_metro(
+    station_name: str,
+    system: str = "TRTC",
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> str:
     """查詢指定捷運站的下一班列車時刻。
 
     Args:
         station_name: 捷運站名（中文），例如「台北車站」「忠孝復興」「板橋」「淡水」「紅樹林」
         system: 捷運/輕軌系統代碼。TRTC=台北捷運, KRTC=高雄捷運, TYMC=桃園機場捷運,
                 NTDLRT=淡海輕軌, KLRT=高雄輕軌
+        start_time: 查詢起始時間 HH:MM，不填則從現在開始
+        end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
     """
     try:
         data = await tdx_client.get_metro_station_timetable(station_name, system)
@@ -42,8 +60,7 @@ async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
         if not data:
             return f"找不到「{station_name}」的時刻資訊，請確認站名是否正確。"
 
-        now_tw = datetime.now(TW_TZ)
-        current_time = now_tw.strftime("%H:%M")
+        lower, upper = _compute_time_bounds(start_time, end_time)
 
         lines: list[str] = [f"🚇 {station_name}站 時刻表：\n"]
 
@@ -57,7 +74,8 @@ async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
             timetables = entry.get("Timetables", [])
             upcoming = [
                 t["DepartureTime"] for t in timetables
-                if t.get("DepartureTime", "") >= current_time
+                if t.get("DepartureTime", "") >= lower
+                and (upper is None or t.get("DepartureTime", "") < upper)
             ]
 
             if not upcoming:
@@ -78,7 +96,11 @@ async def search_next_metro(station_name: str, system: str = "TRTC") -> str:
 
 @tool
 async def search_next_bus(
-    city: str, route_name: str, stop_name: str | None = None
+    city: str,
+    route_name: str,
+    stop_name: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> str:
     """查詢公車路線的預估到站時間。
 
@@ -87,6 +109,8 @@ async def search_next_bus(
               Taichung=台中市, Tainan=台南市, Kaohsiung=高雄市
         route_name: 公車路線名稱，例如「307」「紅5」「藍28」
         stop_name: 特定站牌名稱（中文），不填則回傳整條路線。例如「台北車站」
+        start_time: 篩選預估到站時間的起始 HH:MM，不填則從現在開始
+        end_time: 篩選預估到站時間的結束 HH:MM，不填則不限制結束時間
     """
     try:
         if stop_name:
@@ -96,6 +120,10 @@ async def search_next_bus(
 
         if not data:
             return f"找不到 {city} 的「{route_name}」路線資訊，請確認路線名稱。"
+
+        now_tw = datetime.now(TW_TZ)
+        lower, upper = _compute_time_bounds(start_time, end_time)
+        apply_filter = start_time is not None or end_time is not None
 
         status_map = {
             0: None,
@@ -118,6 +146,13 @@ async def search_next_bus(
             direction = item.get("Direction", 0)
             dir_label = "去程" if direction == 0 else "返程"
 
+            if apply_filter:
+                if status_code != 0 or estimate is None:
+                    continue
+                arrival = (now_tw + timedelta(seconds=estimate)).strftime("%H:%M")
+                if arrival < lower or (upper is not None and arrival >= upper):
+                    continue
+
             status_text = status_map.get(status_code)
             if status_text:
                 lines.append(f"• [{dir_label}] {name}：{status_text}")
@@ -132,7 +167,11 @@ async def search_next_bus(
 
 @tool
 async def search_next_train(
-    from_station: str, to_station: str, train_date: str | None = None
+    from_station: str,
+    to_station: str,
+    train_date: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> str:
     """查詢台鐵從某站到某站最近的班次時刻。
 
@@ -140,6 +179,8 @@ async def search_next_train(
         from_station: 出發站名（中文），例如「臺北」「松山」「花蓮」
         to_station: 到達站名（中文），例如「花蓮」「臺中」「高雄」
         train_date: 查詢日期 YYYY-MM-DD 格式，不填則查今天
+        start_time: 查詢起始時間 HH:MM，不填則從現在開始
+        end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
     """
     try:
         stations = await tdx_client.get_tra_stations()
@@ -173,8 +214,7 @@ async def search_next_train(
         if not train_list:
             return f"查無 {train_date} 從「{from_station}」到「{to_station}」的班次。"
 
-        now_tw = datetime.now(TW_TZ)
-        current_time = now_tw.strftime("%H:%M")
+        lower, upper = _compute_time_bounds(start_time, end_time)
 
         upcoming: list[dict] = []
         for train in train_list:
@@ -196,7 +236,7 @@ async def search_next_train(
                 if sid == to_id:
                     arr_time = stop.get("ArrivalTime") or stop.get("arrivalTime", "")
 
-            if dep_time and dep_time >= current_time:
+            if dep_time and dep_time >= lower and (upper is None or dep_time < upper):
                 upcoming.append({
                     "no": train_no,
                     "type": train_type,
@@ -230,13 +270,18 @@ async def search_next_train(
 
 @tool
 async def search_next_hsr(
-    from_station: str, to_station: str,
+    from_station: str,
+    to_station: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> str:
     """查詢高鐵從某站到某站最近的班次時刻。
 
     Args:
         from_station: 出發站名（中文），例如「台北」「台中」「左營」「高雄」
         to_station: 到達站名（中文），例如「台南」「台北」「板橋」
+        start_time: 查詢起始時間 HH:MM，不填則從現在開始
+        end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
     """
     try:
         from_id = tdx_client.resolve_hsr_station_id(from_station)
@@ -249,7 +294,7 @@ async def search_next_hsr(
 
         now_tw = datetime.now(TW_TZ)
         train_date = now_tw.strftime("%Y-%m-%d")
-        current_time = now_tw.strftime("%H:%M")
+        lower, upper = _compute_time_bounds(start_time, end_time)
 
         data = await tdx_client.get_hsr_timetable(from_id, to_id, train_date)
 
@@ -265,7 +310,7 @@ async def search_next_hsr(
             dep_time = origin.get("DepartureTime", "")
             arr_time = dest.get("ArrivalTime", "")
 
-            if dep_time >= current_time:
+            if dep_time >= lower and (upper is None or dep_time < upper):
                 upcoming.append({
                     "no": info.get("TrainNo", "?"),
                     "dep": dep_time,
