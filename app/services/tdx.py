@@ -16,7 +16,6 @@ class TDXClient:
     """Client for Taiwan TDX (Transport Data eXchange) API."""
 
     def __init__(self) -> None:
-        self._client = httpx.AsyncClient(timeout=10.0)
         self._token: str | None = None
         self._token_expires_at: float = 0
         self._tra_stations_cache: list | None = None
@@ -24,14 +23,15 @@ class TDXClient:
     async def _ensure_token(self) -> None:
         if self._token and time.time() < self._token_expires_at:
             return
-        resp = await self._client.post(
-            TDX_AUTH_URL,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": settings.tdx_client_id,
-                "client_secret": settings.tdx_client_secret,
-            },
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                TDX_AUTH_URL,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": settings.tdx_client_id,
+                    "client_secret": settings.tdx_client_secret,
+                },
+            )
         resp.raise_for_status()
         data = resp.json()
         self._token = data["access_token"]
@@ -39,11 +39,12 @@ class TDXClient:
 
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
         await self._ensure_token()
-        resp = await self._client.get(
-            f"{TDX_BASE_URL}{path}",
-            headers={"Authorization": f"Bearer {self._token}"},
-            params=params,
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{TDX_BASE_URL}{path}",
+                headers={"Authorization": f"Bearer {self._token}"},
+                params=params,
+            )
         resp.raise_for_status()
         return resp.json()
 
@@ -57,6 +58,14 @@ class TDXClient:
             params={"$format": "JSON"},
         )
         name = station_name.rstrip("站")
+        # Exact match first to avoid "南港" bleeding into "南港展覽館" results
+        exact = [
+            item for item in all_data
+            if item.get("StationName", {}).get("Zh_tw", "") == name
+        ]
+        if exact:
+            return exact
+        # Partial match fallback for slight name variations
         return [
             item for item in all_data
             if name in item.get("StationName", {}).get("Zh_tw", "")
@@ -180,7 +189,7 @@ class TDXClient:
     # ── Lifecycle ─────────────────────────────────
 
     async def close(self) -> None:
-        await self._client.aclose()
+        pass  # no persistent client to close
 
 
 tdx_client = TDXClient()

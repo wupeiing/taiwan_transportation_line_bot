@@ -63,14 +63,14 @@ PARSE_PROMPT = """你是台灣交通查詢意圖解析器。根據使用者的�
 - **站名必須逐字複製使用者原文，絕對不能更動任何一個字**。即使你認為站名有錯，也不可以修正。例如使用者說「淡金北新」就填「淡金北新」，不可以改成其他字。系統會自動做模糊比對。
 - **不可依站名判斷交通工具是否合理**。即使站名聽起來像是其他交通工具的站名，也必須完全依照使用者說的交通工具（捷運/輕軌/火車/高鐵）來決定 function，不得拒絕或改變。例如使用者說「淡金北新出發的火車」，即使淡金北新是輕軌站，仍應回傳 search_next_train，站名填「淡金北新」。
 - 輕軌/捷運系統名稱（如「淡海輕軌」「安坑輕軌」「高雄輕軌」）不是站名，transport_type 一律填 "輕軌"，不可填系統名稱。
-- 若訊息中無法確定出發站（station_name / from_station），回傳 {"function": "unknown", "message": "請問您的出發站是哪裡？"}。「到X的捷運/輕軌」「往X怎麼搭」中，X 是目的地不是出發站，出發站未知，應回傳 unknown。例：「到崁頂的輕軌」「到象山的捷運怎麼搭」皆應回傳 unknown。
-- 台鐵/高鐵的 to_station 為必填，若使用者沒提供目的地，回傳 {"function": "unknown", "message": "請問您要前往哪個站？"}。例如「從台北出發的火車」「從高雄搭高鐵」皆因缺少目的地而應回傳 unknown。
+- 若訊息中無法確定出發站（station_name / from_station），回傳 {"function": "unknown", "message": "還需要提供出發站"}。「到X的捷運/輕軌」「往X怎麼搭」中，X 是目的地不是出發站，出發站未知，應回傳 unknown。例：「到崁頂的輕軌」「到象山的捷運怎麼搭」皆應回傳 unknown。
+- 台鐵/高鐵的 to_station 為必填，若使用者沒提供目的地，回傳 {"function": "unknown", "message": "還需要提供想去的車站"}。例如「從台北出發的火車」「從高雄搭高鐵」皆因缺少目的地而應回傳 unknown。
 
 你必須只回傳一個 JSON，不要有任何其他文字：
 {"function": "功能名稱", "params": {"參數名": "值"}}
 
 如果無法判斷，回傳：
-{"function": "unknown", "message": "需要更多資訊的問題"}"""
+{"function": "unknown", "message": "無法判斷查詢內容"}"""
 
 SUMMARY_PROMPT = """你是台灣交通查詢助手。以下是查詢結果，請整理成簡潔、適合手機閱讀的繁體中文回覆。
 
@@ -137,8 +137,29 @@ TOOL_DISPATCH = {
 }
 
 
+HELP_TEXT = """這個小幫手可以幫忙查詢最近一班交通工具的發車時間
+包含 高鐵、捷運、輕軌 跟 台鐵 🚄🚇🚈🚂
+
+使用方式：
+• 高鐵 南港站 往台南
+• 捷運三多商圈
+• 台鐵 台北到花蓮 自強號
+• 輕軌 淡金北新
+
+也可以帶上時間：
+• 捷運 淡水站 下午四點之後
+• 高鐵 台北往左營 早上十點前"""
+
+HELP_HINT = "，或是打 help 有更多使用方式"
+
+HELP_KEYWORDS = {"help", "說明"}
+
+
 async def get_transport_response(user_message: str) -> str:
     """Parse intent → call tool → summarize result."""
+    if user_message.strip().lower() in HELP_KEYWORDS:
+        return HELP_TEXT
+
     llm = _build_llm()
 
     try:
@@ -150,7 +171,8 @@ async def get_transport_response(user_message: str) -> str:
         params = intent.get("params", {})
 
         if func_name == "unknown":
-            return intent.get("message", "請問您想查詢什麼交通資訊？（捷運、公車、台鐵、高鐵）")
+            msg = intent.get("message", "請問您想查詢什麼交通資訊？")
+            return msg + HELP_HINT
 
         # Step 2: Execute tool
         tool_fn = TOOL_DISPATCH.get(func_name)

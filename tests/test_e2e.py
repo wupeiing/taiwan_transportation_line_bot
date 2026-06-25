@@ -98,6 +98,28 @@ async def test_tra_missing_destination(client):
 
 
 @pytest.mark.asyncio
+async def test_nangang_exhibition_no_wenhu_duplicates(client):
+    """南港展覽館應回傳板南線時刻，且包含文湖線無法查詢的提示，不應出現南港站的結果"""
+    resp = await client.get("/debug/ask", params={"q": "捷運南港展覽館"})
+    assert resp.status_code == 200
+    reply = resp.json()["reply"]
+    time_pattern = re.compile(r"\d{2}:\d{2}")
+    assert time_pattern.search(reply), f"Should contain BL line schedule: {reply}"
+    assert "文湖線" in reply, f"Should mention Wenhu Line unavailability: {reply}"
+
+
+@pytest.mark.asyncio
+async def test_wenhu_only_station_no_schedule(client):
+    """東湖屬於文湖線唯一路線，應回傳文湖線不支援的提示而非時刻表"""
+    resp = await client.get("/debug/ask", params={"q": "捷運東湖站"})
+    assert resp.status_code == 200
+    reply = resp.json()["reply"]
+    time_pattern = re.compile(r"\d{2}:\d{2}")
+    assert not time_pattern.search(reply), f"Should not contain schedule for Wenhu-only station: {reply}"
+    assert "文湖線" in reply, f"Should mention Wenhu Line: {reply}"
+
+
+@pytest.mark.asyncio
 async def test_unknown_query_no_crash(client):
     resp = await client.get("/debug/ask", params={"q": "今天天氣如何"})
     assert resp.status_code == 200
