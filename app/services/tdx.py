@@ -57,6 +57,14 @@ class TDXClient:
             params={"$format": "JSON"},
         )
         name = station_name.rstrip("站")
+        # Exact match first to avoid "南港" bleeding into "南港展覽館" results
+        exact = [
+            item for item in all_data
+            if item.get("StationName", {}).get("Zh_tw", "") == name
+        ]
+        if exact:
+            return exact
+        # Partial match fallback for slight name variations
         return [
             item for item in all_data
             if name in item.get("StationName", {}).get("Zh_tw", "")
