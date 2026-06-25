@@ -1,12 +1,70 @@
 """LangChain tools that wrap TDX API calls for the transport agent."""
 
+import json
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from langchain_core.tools import tool
 
 from app.services.tdx import tdx_client
 
+_STATION_MAP_PATH = Path(__file__).parent.parent / "data" / "metro_station_map.json"
+_station_map_cache: dict | None = None
+
+
+def _load_station_map() -> dict:
+    global _station_map_cache
+    if _station_map_cache is None:
+        _station_map_cache = json.loads(_STATION_MAP_PATH.read_text())
+    return _station_map_cache
+
+
+def _resolve_metro_systems(station_name: str, transport_type: str) -> list[str]:
+    """根據站名與交通類型（捷運/輕軌）回傳對應系統代碼列表。"""
+    station_map = _load_station_map()
+    mrt_systems = set(station_map["mrt_systems"])
+    lrt_systems = set(station_map["lrt_systems"])
+
+    systems_str = station_map["stations"].get(station_name, "")
+    if not systems_str:
+        return []
+
+    all_systems = [s.strip() for s in systems_str.split(",")]
+
+    if transport_type == "輕軌":
+        filtered = [s for s in all_systems if s in lrt_systems]
+    else:
+        filtered = [s for s in all_systems if s in mrt_systems]
+
+    return filtered if filtered else all_systems
+
 TW_TZ = timezone(timedelta(hours=8))
+
+TRAIN_TYPE_NAMES: dict[str, str] = {
+    "1":  "太魯閣",
+    "2":  "普悠瑪",
+    "3":  "自強",
+    "4":  "莒光",
+    "5":  "復興",
+    "6":  "區間",
+    "7":  "普快",
+    "10": "區間快",
+    "11": "自強3000",
+}
+
+# 使用者說的車種 → 允許的 TrainTypeCode 集合
+TRAIN_TYPE_FILTER: dict[str, set[str]] = {
+    "自強":   {"1", "2", "3", "11"},
+    "新自強": {"11"},
+    "太魯閣": {"1"},
+    "普悠瑪": {"2"},
+    "莒光":   {"4"},
+    "復興":   {"5"},
+    "區間":   {"6"},
+    "區間車": {"6"},
+    "區間快": {"10"},
+    "普快":   {"7"},
+}
 
 
 def _format_seconds(seconds: int | None) -> str:
@@ -41,57 +99,63 @@ def _compute_time_bounds(start_time: str | None, end_time: str | None) -> tuple[
 @tool
 async def search_next_metro(
     station_name: str,
-    system: str = "TRTC",
+    transport_type: str = "捷運",
+    to_station: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
 ) -> str:
-    """查詢指定捷運站的下一班列車時刻。
+    """查詢指定捷運或輕軌站的下一班列車時刻。
 
     Args:
-        station_name: 捷運站名（中文），例如「台北車站」「忠孝復興」「板橋」「淡水」「紅樹林」
-        system: 捷運/輕軌系統代碼。TRTC=台北捷運, KRTC=高雄捷運, TYMC=桃園機場捷運,
-                NTDLRT=淡海輕軌, KLRT=高雄輕軌
+        station_name: 站名（中文），例如「台北車站」「忠孝復興」「紅樹林」「淡金北新」
+        transport_type: 「捷運」或「輕軌」
+        to_station: 目的站名，用於篩選方向（選填）
         start_time: 查詢起始時間 HH:MM，不填則從現在開始
         end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
     """
     try:
-        data = await tdx_client.get_metro_station_timetable(station_name, system)
+        systems = _resolve_metro_systems(station_name, transport_type)
 
-        if not data:
-            return f"找不到「{station_name}」的時刻資訊，請確認站名是否正確。"
+        if not systems:
+            type_label = transport_type if transport_type in ("捷運", "輕軌") else "捷運/輕軌"
+            return f"找不到{type_label}站「{station_name}」，請確認站名是否正確。"
 
         lower, upper = _compute_time_bounds(start_time, end_time)
+        icon = "🚈" if transport_type == "輕軌" else "🚇"
+        lines: list[str] = [f"{icon} {station_name}站 時刻表：\n"]
 
-        lines: list[str] = [f"🚇 {station_name}站 時刻表：\n"]
-
-        for entry in data:
-            dest = entry.get("DestinationStationName", {}).get("Zh_tw", "未知")
-            service_day = entry.get("ServiceDay", {})
-
-            if not _is_service_today(service_day):
+        for system in systems:
+            data = await tdx_client.get_metro_station_timetable(station_name, system)
+            if not data:
                 continue
 
-            timetables = entry.get("Timetables", [])
-            upcoming = [
-                t["DepartureTime"] for t in timetables
-                if t.get("DepartureTime", "") >= lower
-                and (upper is None or t.get("DepartureTime", "") < upper)
-            ]
+            for entry in data:
+                dest = entry.get("DestinationStationName", {}).get("Zh_tw", "未知")
+                service_day = entry.get("ServiceDay", {})
 
-            if not upcoming:
-                lines.append(f"• 往{dest}：今日已無班次")
-                continue
+                if not _is_service_today(service_day):
+                    continue
 
-            next_3 = upcoming[:3]
-            times_str = "、".join(next_3)
-            lines.append(f"• 往{dest}：接下來 {times_str}")
+                timetables = entry.get("Timetables", [])
+                upcoming = [
+                    t["DepartureTime"] for t in timetables
+                    if t.get("DepartureTime", "") >= lower
+                    and (upper is None or t.get("DepartureTime", "") < upper)
+                ]
+
+                if not upcoming:
+                    lines.append(f"• 往{dest}：今日已無班次")
+                    continue
+
+                times_str = "、".join(upcoming[:3])
+                lines.append(f"• 往{dest}：接下來 {times_str}")
 
         if len(lines) == 1:
             return f"「{station_name}」站目前無可查詢的班次。"
 
         return "\n".join(lines)
     except Exception as e:
-        return f"查詢捷運資料時發生錯誤：{e}"
+        return f"查詢捷運/輕軌資料時發生錯誤：{e}"
 
 
 @tool
@@ -169,6 +233,7 @@ async def search_next_bus(
 async def search_next_train(
     from_station: str,
     to_station: str,
+    train_type: str | None = None,
     train_date: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
@@ -178,6 +243,7 @@ async def search_next_train(
     Args:
         from_station: 出發站名（中文），例如「臺北」「松山」「花蓮」
         to_station: 到達站名（中文），例如「花蓮」「臺中」「高雄」
+        train_type: 車種篩選，例如「自強」「新自強」「太魯閣」「莒光」「區間」「區間快」，不填則全部
         train_date: 查詢日期 YYYY-MM-DD 格式，不填則查今天
         start_time: 查詢起始時間 HH:MM，不填則從現在開始
         end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
@@ -215,6 +281,7 @@ async def search_next_train(
             return f"查無 {train_date} 從「{from_station}」到「{to_station}」的班次。"
 
         lower, upper = _compute_time_bounds(start_time, end_time)
+        allowed_codes = TRAIN_TYPE_FILTER.get(train_type) if train_type else None
 
         upcoming: list[dict] = []
         for train in train_list:
@@ -222,10 +289,11 @@ async def search_next_train(
             stops = train.get("StopTimes", train.get("stopTimes", []))
 
             train_no = info.get("TrainNo") or info.get("trainNo", "?")
-            train_type = (
-                info.get("TrainTypeName", {}).get("Zh_tw")
-                or info.get("trainTypeName", {}).get("zh_tw", "")
-            )
+            type_code = str(info.get("TrainTypeCode", ""))
+            type_name = TRAIN_TYPE_NAMES.get(type_code, info.get("TrainTypeName", {}).get("Zh_tw", ""))
+
+            if allowed_codes and type_code not in allowed_codes:
+                continue
 
             dep_time = None
             arr_time = None
@@ -239,19 +307,21 @@ async def search_next_train(
             if dep_time and dep_time >= lower and (upper is None or dep_time < upper):
                 upcoming.append({
                     "no": train_no,
-                    "type": train_type,
+                    "type": type_name,
                     "dep": dep_time,
                     "arr": arr_time or "?",
                 })
 
         if not upcoming:
+            type_hint = f"（車種：{train_type}）" if train_type else ""
             return (
-                f"今日從「{from_station}」到「{to_station}」已無更多班次。\n"
+                f"今日從「{from_station}」到「{to_station}」已無更多班次{type_hint}。\n"
                 f"可嘗試查詢明天的班次。"
             )
 
+        type_hint = f"（{train_type}）" if train_type else ""
         lines: list[str] = [
-            f"🚂 {from_station} → {to_station}（{train_date}）\n"
+            f"🚂 {from_station} → {to_station}{type_hint}（{train_date}）\n"
             f"接下來的班次：\n"
         ]
         for t in upcoming[:5]:
