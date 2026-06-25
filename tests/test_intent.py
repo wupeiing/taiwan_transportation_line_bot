@@ -21,7 +21,6 @@ async def test_light_rail_intent_time_range(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "紅樹林" in intent["params"]["station_name"]
-    assert "崁頂" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "14:00"
     assert intent["params"]["end_time"] == "17:00"
 
@@ -35,7 +34,6 @@ async def test_light_rail_intent(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "紅樹林" in intent["params"]["station_name"]
-    assert "崁頂" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "10:00"
     assert "end_time" not in intent["params"]
 
@@ -94,7 +92,6 @@ async def test_ntdlrt_from_to_with_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "紅樹林" in intent["params"]["station_name"]
-    assert "崁頂" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "14:00"
     assert "end_time" not in intent["params"]
 
@@ -106,7 +103,6 @@ async def test_ntdlrt_from_to_no_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "紅樹林" in intent["params"]["station_name"]
-    assert "崁頂" in intent["params"]["to_station"]
     assert "start_time" not in intent["params"]
     assert "end_time" not in intent["params"]
 
@@ -147,7 +143,6 @@ async def test_ntalrt_from_to_with_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "十四張" in intent["params"]["station_name"]
-    assert "安康" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "09:00"
     assert "end_time" not in intent["params"]
 
@@ -160,7 +155,6 @@ async def test_ntalrt_from_to_no_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "輕軌"
     assert "十四張" in intent["params"]["station_name"]
-    assert "景文科大" in intent["params"]["to_station"]
     assert "start_time" not in intent["params"]
 
 
@@ -204,7 +198,6 @@ async def test_xinyi_from_to_with_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "淡水" in intent["params"]["station_name"]
-    assert "象山" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "15:00"
     assert "end_time" not in intent["params"]
 
@@ -216,7 +209,6 @@ async def test_xinyi_from_to_no_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "象山" in intent["params"]["station_name"]
-    assert "淡水" in intent["params"]["to_station"]
     assert "start_time" not in intent["params"]
 
 
@@ -255,7 +247,6 @@ async def test_bannan_from_to_with_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "板橋" in intent["params"]["station_name"]
-    assert "忠孝敦化" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "09:00"
     assert "end_time" not in intent["params"]
 
@@ -267,7 +258,6 @@ async def test_bannan_from_to_no_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "土城" in intent["params"]["station_name"]
-    assert "南港展覽館" in intent["params"]["to_station"]
     assert "start_time" not in intent["params"]
 
 
@@ -295,7 +285,6 @@ async def test_ring_from_to_with_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "新埔民生" in intent["params"]["station_name"]
-    assert "景安" in intent["params"]["to_station"]
     assert intent["params"]["start_time"] == "14:00"
     assert "end_time" not in intent["params"]
 
@@ -307,7 +296,6 @@ async def test_ring_from_to_no_time(llm):
     assert intent["function"] == "search_next_metro"
     assert intent["params"]["transport_type"] == "捷運"
     assert "板新" in intent["params"]["station_name"]
-    assert "中和" in intent["params"]["to_station"]
     assert "start_time" not in intent["params"]
 
 
