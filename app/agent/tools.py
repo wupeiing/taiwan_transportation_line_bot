@@ -38,6 +38,27 @@ def _resolve_metro_systems(station_name: str, transport_type: str) -> list[str]:
 
     return filtered if filtered else all_systems
 
+
+def _infer_terminal(station_name: str, to_station: str, systems: list[str]) -> str | None:
+    """用路線順序推斷目的站對應的終點站方向。
+
+    若 to_station 是中間站（非終點），找出從 station_name 出發後會經過 to_station 的那條路線，
+    回傳該方向的終點站名稱。找不到時回傳 None。
+    """
+    route_order = _load_station_map().get("route_order", {})
+    for system in systems:
+        for route in route_order.get(system, []):
+            if station_name not in route or to_station not in route:
+                continue
+            from_idx = route.index(station_name)
+            to_idx = route.index(to_station)
+            if to_idx > from_idx:
+                return route[-1]
+            elif to_idx < from_idx:
+                return route[0]
+    return None
+
+
 TW_TZ = timezone(timedelta(hours=8))
 
 TRAIN_TYPE_NAMES: dict[str, str] = {
@@ -124,6 +145,12 @@ async def search_next_metro(
         icon = "🚈" if transport_type == "輕軌" else "🚇"
         lines: list[str] = [f"{icon} {station_name}站 時刻表：\n"]
 
+        # Resolve the terminal station that corresponds to to_station
+        effective_dest: str | None = None
+        if to_station:
+            inferred = _infer_terminal(station_name, to_station, systems)
+            effective_dest = inferred if inferred else to_station
+
         for system in systems:
             data = await tdx_client.get_metro_station_timetable(station_name, system)
             if not data:
@@ -134,6 +161,9 @@ async def search_next_metro(
                 service_day = entry.get("ServiceDay", {})
 
                 if not _is_service_today(service_day):
+                    continue
+
+                if effective_dest and effective_dest not in dest and dest not in effective_dest:
                     continue
 
                 timetables = entry.get("Timetables", [])
