@@ -127,14 +127,15 @@ async def search_next_metro(
         icon = "🚈" if transport_type == "輕軌" else "🚇"
         lines: list[str] = [f"{icon} {station_name}站 時刻表：\n"]
 
+        # dest → merged upcoming times (across multiple TDX entries for same direction)
+        dest_times: dict[str, list[str]] = {}
+        has_wenhu_only = False
+
         for system in systems:
             data = await tdx_client.get_metro_station_timetable(station_name, system)
             if not data:
                 if system == "TRTC" and station_name in wenhu_only:
-                    return (
-                        f"🚇 {station_name}站屬於文湖線，目前無法查詢時刻，"
-                        f"建議使用台北捷運官方 App 查詢，或打 help 有更多使用方式"
-                    )
+                    has_wenhu_only = True
                 continue
 
             for entry in data:
@@ -150,13 +151,19 @@ async def search_next_metro(
                     if t.get("DepartureTime", "") >= lower
                     and (upper is None or t.get("DepartureTime", "") < upper)
                 ]
+                if upcoming:
+                    dest_times.setdefault(dest, []).extend(upcoming)
 
-                if not upcoming:
-                    lines.append(f"• 往{dest}：今日已無班次")
-                    continue
+        if has_wenhu_only and not dest_times:
+            return (
+                f"🚇 {station_name}站屬於文湖線，目前無法查詢時刻，"
+                f"建議使用台北捷運官方 App 查詢，或打 help 有更多使用方式"
+            )
 
-                times_str = "、".join(upcoming[:3])
-                lines.append(f"• 往{dest}：接下來 {times_str}")
+        for dest, times in dest_times.items():
+            merged = sorted(set(times))
+            times_str = "、".join(merged[:3])
+            lines.append(f"• 往{dest}：接下來 {times_str}")
 
         if len(lines) == 1:
             return f"「{station_name}」站目前無可查詢的班次。"
