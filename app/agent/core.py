@@ -137,8 +137,29 @@ TOOL_DISPATCH = {
 }
 
 
+HELP_TEXT = """這個小幫手可以幫忙查詢最近一班交通工具的發車時間
+包含 高鐵、捷運、輕軌 跟 台鐵 🚄🚇🚈🚂
+
+使用方式：
+• 高鐵 南港站 往台南
+• 捷運三多商圈
+• 台鐵 台北到花蓮 自強號
+• 輕軌 淡金北新
+
+也可以帶上時間：
+• 捷運 淡水站 下午四點之後
+• 高鐵 台北往左營 早上十點前"""
+
+HELP_HINT = "\n\n輸入「help」或「說明」可查看使用方式 💡"
+
+HELP_KEYWORDS = {"help", "說明"}
+
+
 async def get_transport_response(user_message: str) -> str:
     """Parse intent → call tool → summarize result."""
+    if user_message.strip().lower() in HELP_KEYWORDS:
+        return HELP_TEXT
+
     llm = _build_llm()
 
     try:
@@ -150,7 +171,8 @@ async def get_transport_response(user_message: str) -> str:
         params = intent.get("params", {})
 
         if func_name == "unknown":
-            return intent.get("message", "請問您想查詢什麼交通資訊？（捷運、公車、台鐵、高鐵）")
+            msg = intent.get("message", "請問您想查詢什麼交通資訊？")
+            return msg + HELP_HINT
 
         # Step 2: Execute tool
         tool_fn = TOOL_DISPATCH.get(func_name)
