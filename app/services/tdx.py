@@ -117,7 +117,13 @@ class TDXClient:
 
     def resolve_tra_station_id(self, station_list: list, name: str) -> str | None:
         normalized = self._normalize_tra_name(name)
-        for name_zh, station_id in self._get_all_tra_names(station_list):
+        all_names = self._get_all_tra_names(station_list)
+        # Exact match first to avoid "臺中" matching "臺中港" before "臺中"
+        for name_zh, station_id in all_names:
+            if normalized == name_zh:
+                return station_id
+        # Partial match fallback
+        for name_zh, station_id in all_names:
             if normalized in name_zh or name_zh in normalized:
                 return station_id
         return None

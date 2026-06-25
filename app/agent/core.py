@@ -19,7 +19,7 @@ PARSE_PROMPT = """你是台灣交通查詢意圖解析器。根據使用者的�
 可用的功能：
 1. search_next_metro — 查捷運/輕軌時刻
    必填：station_name (出發站名), transport_type ("捷運" 或 "輕軌")
-   選填：to_station (到達站), start_time (HH:MM), end_time (HH:MM)
+   選填：start_time (HH:MM), end_time (HH:MM)
 
 2. search_next_train — 查台鐵時刻
    必填：from_station (出發站), to_station (到達站)
@@ -58,7 +58,7 @@ PARSE_PROMPT = """你是台灣交通查詢意圖解析器。根據使用者的�
 - 提到「高鐵」→ search_next_hsr
 
 注意：
-- 使用者說「從A到B」時，A 是出發站、B 是目的地。捷運/輕軌填 station_name=A, to_station=B；台鐵/高鐵填 from_station=A, to_station=B。
+- 使用者說「從A到B」時，A 是出發站、B 是目的地。捷運/輕軌只填 station_name=A（不填 to_station）；台鐵/高鐵填 from_station=A, to_station=B。
 - station_name / from_station 請去掉「站」字，例如「紅樹林」而非「紅樹林站」。
 - **站名必須逐字複製使用者原文，絕對不能更動任何一個字**。即使你認為站名有錯，也不可以修正。例如使用者說「淡金北新」就填「淡金北新」，不可以改成其他字。系統會自動做模糊比對。
 - **不可依站名判斷交通工具是否合理**。即使站名聽起來像是其他交通工具的站名，也必須完全依照使用者說的交通工具（捷運/輕軌/火車/高鐵）來決定 function，不得拒絕或改變。例如使用者說「淡金北新出發的火車」，即使淡金北新是輕軌站，仍應回傳 search_next_train，站名填「淡金北新」。

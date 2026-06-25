@@ -38,6 +38,7 @@ def _resolve_metro_systems(station_name: str, transport_type: str) -> list[str]:
 
     return filtered if filtered else all_systems
 
+
 TW_TZ = timezone(timedelta(hours=8))
 
 TRAIN_TYPE_NAMES: dict[str, str] = {
@@ -100,7 +101,6 @@ def _compute_time_bounds(start_time: str | None, end_time: str | None) -> tuple[
 async def search_next_metro(
     station_name: str,
     transport_type: str = "捷運",
-    to_station: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
 ) -> str:
@@ -109,7 +109,6 @@ async def search_next_metro(
     Args:
         station_name: 站名（中文），例如「台北車站」「忠孝復興」「紅樹林」「淡金北新」
         transport_type: 「捷運」或「輕軌」
-        to_station: 目的站名，用於篩選方向（選填）
         start_time: 查詢起始時間 HH:MM，不填則從現在開始
         end_time: 查詢結束時間 HH:MM，不填則不限制結束時間
     """
