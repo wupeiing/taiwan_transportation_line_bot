@@ -132,9 +132,8 @@ async def search_next_metro(
             if not data:
                 if system == "TRTC" and station_name in wenhu_only:
                     return (
-                        f"🚇 {station_name}站屬於文湖線（BR），"
-                        f"目前 TDX 未提供文湖線即時時刻資料，"
-                        f"建議使用台北捷運官方 App 查詢。"
+                        f"🚇 {station_name}站屬於文湖線，目前無法查詢時刻，"
+                        f"建議使用台北捷運官方 App 查詢，或打 help 有更多使用方式"
                     )
                 continue
 
@@ -163,7 +162,7 @@ async def search_next_metro(
             return f"「{station_name}」站目前無可查詢的班次。"
 
         if station_name in wenhu_transfer:
-            lines.append("\n（文湖線方向時刻目前無法查詢，請使用台北捷運官方 App）")
+            lines.append("\n（文湖線方向時刻目前無法查詢，建議使用台北捷運官方 App，或打 help 有更多使用方式）")
 
         return "\n".join(lines)
     except Exception as e:
