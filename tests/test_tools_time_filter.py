@@ -121,6 +121,80 @@ class TestSearchNextMetroTimeFilter:
         assert "12:00" not in result
 
 
+# ── search_next_metro deduplication ──────────────────────────────────────────
+
+# Simulates 台北車站 on BL line: TDX returns two entries for 往象山 (two service patterns)
+_METRO_DUPLICATE_DATA = [
+    {
+        "DestinationStationName": {"Zh_tw": "象山"},
+        "ServiceDay": _ALL_DAYS,
+        "Timetables": [
+            {"DepartureTime": "08:17"},
+            {"DepartureTime": "08:27"},
+            {"DepartureTime": "08:37"},
+        ],
+    },
+    {
+        "DestinationStationName": {"Zh_tw": "象山"},
+        "ServiceDay": _ALL_DAYS,
+        "Timetables": [
+            {"DepartureTime": "08:20"},
+            {"DepartureTime": "08:30"},
+            {"DepartureTime": "08:40"},
+        ],
+    },
+    {
+        "DestinationStationName": {"Zh_tw": "頂埔"},
+        "ServiceDay": _ALL_DAYS,
+        "Timetables": [
+            {"DepartureTime": "08:19"},
+            {"DepartureTime": "08:29"},
+        ],
+    },
+]
+
+
+class TestSearchNextMetroDeduplicate:
+    async def test_duplicate_destinations_merged_into_one_row(self):
+        """同方向有多筆 TDX entry 時，應合併成一行（不重複顯示）。"""
+        frozen = datetime(2025, 6, 15, 8, 0, tzinfo=TW_TZ)
+        with patch("app.agent.tools.datetime") as mock_dt:
+            mock_dt.now.return_value = frozen
+            with patch("app.agent.tools.tdx_client") as m:
+                m.get_metro_station_timetable = AsyncMock(return_value=_METRO_DUPLICATE_DATA)
+                result = await search_next_metro.ainvoke({"station_name": "台北車站"})
+        assert result.count("往象山") == 1, f"Expected exactly one 往象山 row:\n{result}"
+        assert result.count("往頂埔") == 1, f"Expected exactly one 往頂埔 row:\n{result}"
+
+    async def test_merged_times_are_sorted_and_earliest_three_shown(self):
+        """合併後取最早的三班，且時間應排序。"""
+        frozen = datetime(2025, 6, 15, 8, 0, tzinfo=TW_TZ)
+        with patch("app.agent.tools.datetime") as mock_dt:
+            mock_dt.now.return_value = frozen
+            with patch("app.agent.tools.tdx_client") as m:
+                m.get_metro_station_timetable = AsyncMock(return_value=_METRO_DUPLICATE_DATA)
+                result = await search_next_metro.ainvoke({"station_name": "台北車站"})
+        # Merged 往象山: 08:17, 08:20, 08:27, 08:30, 08:37, 08:40 → first 3: 08:17, 08:20, 08:27
+        assert "08:17" in result
+        assert "08:20" in result
+        assert "08:27" in result
+        assert "08:30" not in result
+        assert "08:40" not in result
+
+    async def test_time_filter_applied_before_merge(self):
+        """start_time 篩選在合併前套用：08:25 後，每個 entry 只留符合的時間。"""
+        with patch("app.agent.tools.tdx_client") as m:
+            m.get_metro_station_timetable = AsyncMock(return_value=_METRO_DUPLICATE_DATA)
+            result = await search_next_metro.ainvoke({
+                "station_name": "台北車站",
+                "start_time": "08:25",
+            })
+        assert "08:17" not in result
+        assert "08:20" not in result
+        assert "08:27" in result
+        assert "08:30" in result
+
+
 # ── search_next_bus ───────────────────────────────────────────────────────────
 
 # With now=10:00:00, estimated arrivals:
